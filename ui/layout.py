@@ -151,12 +151,47 @@ class RectFactory:
                         height,
                     )
                 )
+
         return rects
 
     def profile_delete_rect(self, profile_rect: pygame.Rect) -> pygame.Rect:
         """Возвращает область кнопки удаления профиля."""
         size = self.config.layout.profile_delete_size
         return pygame.Rect(profile_rect.right - size - 10, profile_rect.y + 10, size, size)
+
+    def profile_settings_rect(self, profile_rect: pygame.Rect) -> pygame.Rect:
+        """Возвращает область кнопки настроек профиля."""
+        size = self.config.layout.profile_delete_size
+        return pygame.Rect(profile_rect.right - size - 10, profile_rect.bottom - size - 10, size, size)
+
+    def settings_deck_rects(self) -> list[pygame.Rect]:
+        """Возвращает области трех рубашек колоды в настройках."""
+        inner = self.sidebar_inner_rect()
+        title = self.title_rect()
+        width, height = self.config.layout.card_size
+
+        start_x = inner.centerx - width // 2
+        start_y = title.bottom + 18
+        gap = 18
+
+        return [
+            pygame.Rect(start_x, start_y + index * (height + gap), width, height)
+            for index in range(3)
+        ]
+
+    def settings_back_button_rect(self) -> pygame.Rect:
+        """Возвращает область кнопки Back to menu."""
+        inner = self.sidebar_inner_rect()
+        width = inner.width
+        height = 56
+        return pygame.Rect(inner.x, inner.bottom - height * 2 - 10, width, height)
+
+    def settings_play_button_rect(self) -> pygame.Rect:
+        """Возвращает область кнопки Play."""
+        inner = self.sidebar_inner_rect()
+        width = inner.width
+        height = 56
+        return pygame.Rect(inner.x, inner.bottom - height, width, height)
 
     def bottom_target_rects(
         self,

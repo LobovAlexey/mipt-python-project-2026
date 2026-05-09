@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 Color = tuple[int, int, int]
 ColorA = tuple[int, int, int, int]
 
@@ -17,7 +16,8 @@ class WindowConfig:
 
 @dataclass(frozen=True, slots=True)
 class GameplayConfig:
-    win_score: int = 150
+    base_win_score: int = 300
+    win_score_step: int = 20
     starting_plays: int = 5
     starting_discards: int = 5
 
@@ -66,7 +66,6 @@ class PathsConfig:
     profiles_csv: Path = Path("data/profiles.csv")
     card_images_dir: Path = Path("images/card_images")
     background_image: Path = Path("images/background.png")
-    deck_back_image: Path = Path("images/back.jpeg")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,12 +97,15 @@ class ColorTheme:
     profile_selected: Color = (54, 144, 255)
     profile_border: Color = (32, 38, 44)
     profile_delete_fill: Color = (178, 68, 68)
+    profile_settings_fill: Color = (54, 144, 255)
 
     hand_box_fill: ColorA = (0, 0, 0, 70)
     hand_box_border: ColorA = (255, 255, 255, 210)
 
     deck_badge_fill: Color = (242, 242, 242)
     deck_badge_border: Color = (30, 30, 30)
+    deck_selected_badge_fill: Color = (72, 176, 88)
+    deck_selected_badge_border: Color = (24, 96, 36)
     score_badge_fill: Color = (54, 144, 255)
     score_badge_border: Color = (20, 40, 90)
     deck_fallback_fill: Color = (90, 50, 110)

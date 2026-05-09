@@ -3,8 +3,9 @@
 import pygame
 
 from core.cards import Card
-from core.game import GameSession
+from core.decks import get_deck_type, get_deck_types
 from core.errors import InvalidMove
+from core.game import GameSession
 from ui.assets import AppAssets
 from ui.config import AppConfig
 from ui.enums import AppMode, PopupKind, RoundPhase
@@ -73,6 +74,27 @@ class App:
             return "plus"
         return "inactive"
 
+    def current_profile(self):
+        """Возвращает текущий выбранный профиль."""
+        if self.selected_profile_index is None:
+            return None
+        if not self.profiles.exists(self.selected_profile_index):
+            return None
+        return self.profiles.get(self.selected_profile_index)
+
+    def selected_profile_deck_name(self) -> str:
+        """Возвращает название выбранной колоды профиля."""
+        profile = self.current_profile()
+        if profile is None:
+            return get_deck_types()[0].deck_name
+        return profile.deck_name
+
+    def current_win_score(self) -> int:
+        """Возвращает цель по фишкам для победы."""
+        profile = self.current_profile()
+        current_rounds = 0 if profile is None else profile.current_rounds
+        return self.config.gameplay.base_win_score + self.config.gameplay.win_score_step * current_rounds
+
     def play_button_enabled(self) -> bool:
         """Можно ли нажать Play."""
         return (
@@ -102,6 +124,10 @@ class App:
                     self._handle_menu_click(event.pos)
                     continue
 
+                if self.mode == AppMode.PROFILE_SETTINGS:
+                    self._handle_profile_settings_click(event.pos)
+                    continue
+
                 if self.popup_kind != PopupKind.NONE:
                     if self.rects.popup_primary_button_rect().collidepoint(event.pos):
                         self._start_game_for_selected_profile()
@@ -122,6 +148,11 @@ class App:
                 self._delete_profile(index)
                 return
 
+            if kind == "created" and self.rects.profile_settings_rect(rect).collidepoint(mouse_pos):
+                self.selected_profile_index = index
+                self.mode = AppMode.PROFILE_SETTINGS
+                return
+
             if kind == "inactive":
                 return
 
@@ -134,6 +165,23 @@ class App:
             else:
                 self.selected_profile_index = index
             return
+
+    def _handle_profile_settings_click(self, mouse_pos: tuple[int, int]) -> None:
+        if self.selected_profile_index is None or not self.profiles.exists(self.selected_profile_index):
+            self._back_to_menu()
+            return
+
+        for deck_type, rect in zip(get_deck_types(), self.rects.settings_deck_rects()):
+            if rect.collidepoint(mouse_pos):
+                self.profiles.set_deck_name(self.selected_profile_index, deck_type.deck_name)
+                return
+
+        if self.rects.settings_back_button_rect().collidepoint(mouse_pos):
+            self._back_to_menu()
+            return
+
+        if self.rects.settings_play_button_rect().collidepoint(mouse_pos):
+            self._start_game_for_selected_profile()
 
     def _handle_game_click(self, mouse_pos: tuple[int, int]) -> None:
         if self.rects.play_button_rect().collidepoint(mouse_pos):
@@ -179,8 +227,11 @@ class App:
         if self.selected_profile_index is None or not self.profiles.exists(self.selected_profile_index):
             return
 
+        profile = self.profiles.get(self.selected_profile_index)
+        deck_cls = get_deck_type(profile.deck_name)
+
         self.session = GameSession()
-        self.session.start_new_game()
+        self.session.start_new_game(deck_cls)
 
         self.mode = AppMode.GAME
         self.popup_kind = PopupKind.NONE
@@ -241,7 +292,7 @@ class App:
             return
         if self.round_phase != RoundPhase.IDLE:
             return
-        if self.session.state.total_chips >= self.config.gameplay.win_score:
+        if self.session.state.total_chips >= self.current_win_score():
             self._finish_win_round()
             return
         if self.plays_left <= 0:
@@ -253,6 +304,7 @@ class App:
             selected_indices=self.session.state.selected_indices,
             round_phase=self.round_phase,
         )
+
         selected_indices = sorted(self.session.state.selected_indices)
 
         try:
@@ -265,6 +317,7 @@ class App:
             pygame.Vector2(start_rects[index].x, start_rects[index].y)
             for index in selected_indices
         ]
+
         self.round_phase = RoundPhase.MOVING_TO_CENTER
         self.center_move_active = True
         self.score_delay_timer = 0.0
@@ -279,6 +332,7 @@ class App:
             self.session.state.hand[index]
             for index in selected_indices
         ]
+
         self.animated_discard_positions = [
             pygame.Vector2(
                 self.bottom_card_positions[index].x,
@@ -286,6 +340,7 @@ class App:
             )
             for index in selected_indices
         ]
+
         self.round_phase = RoundPhase.DISCARD_EXITING
 
     def _update_bottom_hand_animation(self, dt: float) -> None:
@@ -294,6 +349,7 @@ class App:
             selected_indices=self.session.state.selected_indices,
             round_phase=self.round_phase,
         )
+
         if len(self.bottom_card_positions) != len(target_rects):
             self._reset_bottom_card_positions()
             return
@@ -329,6 +385,7 @@ class App:
                 dt,
                 self.config.animation.played_exit_speed,
             )
+
             if all_reached:
                 self._begin_refill_animation()
 
@@ -345,6 +402,7 @@ class App:
             dt,
             self.config.animation.played_exit_speed,
         )
+
         if all_reached:
             self._begin_discard_refill_animation()
 
@@ -460,6 +518,7 @@ class App:
             selected_indices=self.session.state.selected_indices,
             round_phase=self.round_phase,
         )
+
         if len(target_rects) != len(self.bottom_card_positions):
             return False
 
@@ -476,6 +535,7 @@ class App:
             selected_indices=self.session.state.selected_indices,
             round_phase=self.round_phase,
         )
+
         self.bottom_card_positions = [
             pygame.Vector2(rect.x, rect.y)
             for rect in target_rects

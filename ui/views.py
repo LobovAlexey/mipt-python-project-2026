@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pygame
 
 from core.cards import Card
+from core.decks import get_deck_type, get_deck_types
 from ui.assets import AppAssets
 from ui.config import AppConfig
 from ui.enums import AppMode, PopupKind, RoundPhase
@@ -65,6 +66,10 @@ class GameView:
             self.draw_profile_menu(app)
             return
 
+        if app.mode == AppMode.PROFILE_SETTINGS:
+            self.draw_profile_settings(app)
+            return
+
         self.draw_left_sidebar(app)
         self.draw_bottom_hand_area(app)
 
@@ -83,8 +88,12 @@ class GameView:
         subtitle_rect = pygame.Rect(0, 100, self.config.window.size[0], 32)
 
         self.draw_centered_text("Choose Profile", self.fonts.title, colors.text_main, title_rect)
-        self.draw_centered_text("Click + to create a profile. Click a selected profile to start.", self.fonts.small,
-                                colors.text_muted, subtitle_rect)
+        self.draw_centered_text(
+            "Click + to create a profile. Click a selected profile to start.",
+            self.fonts.small,
+            colors.text_muted,
+            subtitle_rect,
+        )
 
         profiles = app.profiles.profiles
         for index, rect in enumerate(self.rects.profile_slot_rects()):
@@ -112,19 +121,83 @@ class GameView:
                 continue
 
             delete_rect = self.rects.profile_delete_rect(rect)
+            settings_rect = self.rects.profile_settings_rect(rect)
+
             pygame.draw.rect(self.screen, colors.profile_delete_fill, delete_rect, border_radius=10)
             pygame.draw.rect(self.screen, colors.profile_border, delete_rect, width=2, border_radius=10)
             delete_surface = self.fonts.profile_delete.render("x", True, colors.text_main)
             delete_text_rect = delete_surface.get_rect(center=delete_rect.center)
             self.screen.blit(delete_surface, delete_text_rect)
 
+            pygame.draw.rect(self.screen, colors.profile_settings_fill, settings_rect, border_radius=10)
+            pygame.draw.rect(self.screen, colors.profile_border, settings_rect, width=2, border_radius=10)
+            settings_surface = self.fonts.profile_delete.render("S", True, colors.text_main)
+            settings_text_rect = settings_surface.get_rect(center=settings_rect.center)
+            self.screen.blit(settings_surface, settings_text_rect)
+
             profile = profiles[index]
             text_x = rect.x + 20
             self.draw_text(f"Profile {index + 1}", self.fonts.label, colors.text_main, text_x, rect.y + 24)
-            self.draw_text(f"Record: {profile.record_rounds} rounds", self.fonts.small, colors.text_main, text_x,
-                           rect.y + 72)
-            self.draw_text(f"Current: {profile.current_rounds} rounds", self.fonts.small, colors.text_main, text_x,
-                           rect.y + 108)
+            self.draw_text(
+                f"Record: {profile.record_rounds} rounds",
+                self.fonts.small,
+                colors.text_main,
+                text_x,
+                rect.y + 72,
+            )
+            self.draw_text(
+                f"Current: {profile.current_rounds} rounds",
+                self.fonts.small,
+                colors.text_main,
+                text_x,
+                rect.y + 108,
+            )
+
+    def draw_profile_settings(self, app: "App") -> None:
+        """Отрисовывает экран настроек профиля."""
+        colors = self.config.colors
+
+        sidebar_rect = pygame.Rect(0, 0, self.config.layout.sidebar_width, self.config.window.size[1])
+        pygame.draw.rect(self.screen, colors.panel_bg, sidebar_rect)
+
+        title_rect = self.rects.title_rect()
+        self.draw_panel(title_rect, fill=colors.info_button)
+
+        profile_label = "Profile"
+        if app.selected_profile_index is not None:
+            profile_label = f"Profile {app.selected_profile_index + 1}"
+        self.draw_centered_text(profile_label, self.fonts.title, colors.text_main, title_rect)
+
+        selected_deck_name = app.selected_profile_deck_name()
+
+        for deck_type, deck_rect in zip(get_deck_types(), self.rects.settings_deck_rects()):
+            deck_image = self.assets.get_deck_back(deck_type.back_image_path)
+            self.screen.blit(deck_image, deck_rect.topleft)
+            pygame.draw.rect(self.screen, colors.panel_border, deck_rect, width=3, border_radius=12)
+
+            if deck_type.deck_name == selected_deck_name:
+                badge_rect = pygame.Rect(0, 0, self.config.layout.badge_size, self.config.layout.badge_size)
+                badge_rect.center = deck_rect.center
+
+                pygame.draw.rect(self.screen, colors.deck_selected_badge_fill, badge_rect, border_radius=10)
+                pygame.draw.rect(self.screen, colors.deck_selected_badge_border, badge_rect, width=2, border_radius=10)
+
+                badge_text = self.fonts.deck_badge.render("V", True, colors.text_main)
+                badge_text_rect = badge_text.get_rect(center=badge_rect.center)
+                self.screen.blit(badge_text, badge_text_rect)
+
+        self.draw_button(
+            self.rects.settings_back_button_rect(),
+            "Back to menu",
+            colors.profile_created,
+            colors.text_main,
+        )
+        self.draw_button(
+            self.rects.settings_play_button_rect(),
+            "Play",
+            colors.play_enabled,
+            colors.play_enabled_text,
+        )
 
     def draw_round_popup(self, app: "App") -> None:
         """Отрисовывает всплывающее окно завершения раунда."""
@@ -153,17 +226,37 @@ class GameView:
 
         if app.selected_profile_index is not None and app.profiles.exists(app.selected_profile_index):
             profile = app.profiles.get(app.selected_profile_index)
-            self.draw_centered_text(f"Profile {app.selected_profile_index + 1}", self.fonts.label, colors.text_main,
-                                    line1)
-            self.draw_centered_text(f"Record: {profile.record_rounds} rounds", self.fonts.small, colors.text_muted,
-                                    line2)
-            self.draw_centered_text(f"Current: {profile.current_rounds} rounds", self.fonts.small, colors.text_muted,
-                                    line3)
+            self.draw_centered_text(
+                f"Profile {app.selected_profile_index + 1}",
+                self.fonts.label,
+                colors.text_main,
+                line1,
+            )
+            self.draw_centered_text(
+                f"Record: {profile.record_rounds} rounds",
+                self.fonts.small,
+                colors.text_muted,
+                line2,
+            )
+            self.draw_centered_text(
+                f"Current: {profile.current_rounds} rounds",
+                self.fonts.small,
+                colors.text_muted,
+                line3,
+            )
 
-        self.draw_button(self.rects.popup_primary_button_rect(), primary_label, colors.play_enabled,
-                         colors.play_enabled_text)
-        self.draw_button(self.rects.popup_secondary_button_rect(), "Back to menu", colors.profile_created,
-                         colors.text_main)
+        self.draw_button(
+            self.rects.popup_primary_button_rect(),
+            primary_label,
+            colors.play_enabled,
+            colors.play_enabled_text,
+        )
+        self.draw_button(
+            self.rects.popup_secondary_button_rect(),
+            "Back to menu",
+            colors.profile_created,
+            colors.text_main,
+        )
 
     def draw_background(self) -> None:
         """Отрисовывает фон приложения."""
@@ -189,22 +282,42 @@ class GameView:
 
         total_chips_rect = self.rects.total_chips_rect()
         self.draw_panel(total_chips_rect)
-        self.draw_text("Total Chips", self.fonts.label, colors.text_muted, total_chips_rect.x + 18,
-                       total_chips_rect.y + 16)
-        self.draw_text(str(app.session.state.total_chips), self.fonts.value, colors.text_gold, total_chips_rect.x + 18,
-                       total_chips_rect.y + 56)
+        self.draw_text(
+            f"Need {app.current_win_score()} chips",
+            self.fonts.label,
+            colors.text_muted,
+            total_chips_rect.x + 18,
+            total_chips_rect.y + 16,
+        )
+        self.draw_text(
+            str(app.session.state.total_chips),
+            self.fonts.value,
+            colors.text_gold,
+            total_chips_rect.x + 18,
+            total_chips_rect.y + 56,
+        )
 
         chips_rect = self.rects.chips_rect()
         self.draw_panel(chips_rect)
         self.draw_text("Chips", self.fonts.label, colors.text_muted, chips_rect.x + 18, chips_rect.y + 14)
-        self.draw_text(str(app.session.state.current_chips), self.fonts.value, colors.text_blue, chips_rect.x + 18,
-                       chips_rect.y + 42)
+        self.draw_text(
+            str(app.session.state.current_chips),
+            self.fonts.value,
+            colors.text_blue,
+            chips_rect.x + 18,
+            chips_rect.y + 42,
+        )
 
         mult_rect = self.rects.mult_rect()
         self.draw_panel(mult_rect)
         self.draw_text("Mult", self.fonts.label, colors.text_muted, mult_rect.x + 18, mult_rect.y + 14)
-        self.draw_text(str(app.session.state.current_mult), self.fonts.value, colors.text_red, mult_rect.x + 18,
-                       mult_rect.y + 42)
+        self.draw_text(
+            str(app.session.state.current_mult),
+            self.fonts.value,
+            colors.text_red,
+            mult_rect.x + 18,
+            mult_rect.y + 42,
+        )
 
         self.draw_button(self.rects.info_button_rect(), "Info", colors.info_button, colors.text_main)
 
@@ -221,6 +334,7 @@ class GameView:
             count=app.plays_left,
             enabled=app.play_button_enabled(),
         )
+
         self.draw_action_box(
             panel_rect=self.rects.discard_box_rect(),
             button_rect=self.rects.discard_button_rect(),
@@ -259,11 +373,13 @@ class GameView:
         colors = self.config.colors
         deck_rect = self.rects.sidebar_deck_rect()
 
-        if self.assets.deck_back_image is not None:
-            self.screen.blit(self.assets.deck_back_image, deck_rect.topleft)
+        if app.session.deck is not None:
+            deck_image = self.assets.get_deck_back(app.session.deck.back_image_path)
+            self.screen.blit(deck_image, deck_rect.topleft)
         else:
             pygame.draw.rect(self.screen, colors.deck_fallback_fill, deck_rect, border_radius=12)
-            pygame.draw.rect(self.screen, colors.panel_border, deck_rect, width=3, border_radius=12)
+
+        pygame.draw.rect(self.screen, colors.panel_border, deck_rect, width=3, border_radius=12)
 
         badge_rect = pygame.Rect(0, 0, self.config.layout.badge_size, self.config.layout.badge_size)
         badge_rect.center = deck_rect.center
@@ -280,8 +396,13 @@ class GameView:
         colors = self.config.colors
 
         hand_area_rect = self.rects.hand_area_rect()
-        self.draw_rounded_overlay(hand_area_rect, fill_rgba=colors.hand_box_fill, border_rgba=colors.hand_box_border,
-                                  border_width=2, radius=16)
+        self.draw_rounded_overlay(
+            hand_area_rect,
+            fill_rgba=colors.hand_box_fill,
+            border_rgba=colors.hand_box_border,
+            border_width=2,
+            radius=16,
+        )
 
         hand = app.session.state.hand
         for index, card in enumerate(hand):
@@ -354,10 +475,14 @@ class GameView:
         badge_rect = pygame.Rect(0, 0, self.config.layout.badge_size, self.config.layout.badge_size)
         badge_rect.center = card_rect.center
 
-        self.draw_alpha_badge(badge_rect=badge_rect, text=str(card.chips), alpha=alpha,
-                              fill_color=self.config.colors.score_badge_fill,
-                              border_color=self.config.colors.score_badge_border,
-                              text_color=self.config.colors.play_enabled_text)
+        self.draw_alpha_badge(
+            badge_rect=badge_rect,
+            text=str(card.chips),
+            alpha=alpha,
+            fill_color=self.config.colors.score_badge_fill,
+            border_color=self.config.colors.score_badge_border,
+            text_color=self.config.colors.play_enabled_text,
+        )
 
     def badge_alpha_for_played_card(self, app: "App", played_card_index: int) -> int:
         """Возвращает прозрачность бейджа для сыгранной карты."""

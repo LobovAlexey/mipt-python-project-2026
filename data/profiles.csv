@@ -1,2 +1,3 @@
-current,record
-0,0
+current,record,deck,high_card_cnt,pair_cnt,two_pair_cnt,three_of_a_kind_cnt,straight_cnt,flush_cnt,full_house_cnt,four_of_a_kind_cnt,straight_flush_cnt,five_of_a_kind_cnt,flush_house_cnt,flush_five_cnt
+0,0,hearts-spades,0,0,0,0,0,0,0,0,0,0,0,0
+0,0,short,0,0,0,0,0,0,0,0,0,0,0,0

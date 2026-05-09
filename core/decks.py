@@ -1,6 +1,7 @@
 """Deck abstractions and concrete deck presets."""
 
 from abc import ABC
+from pathlib import Path
 from random import shuffle
 
 import core.cards as cards
@@ -9,6 +10,9 @@ from core.errors import NoCardsLeft
 
 class Deck(ABC):
     """Абстрактный класс для колод."""
+
+    deck_name = "standart"
+    back_image_path = Path("images/deck_images/standart.png")
 
     def __init__(self) -> None:
         self.index = 0
@@ -56,6 +60,9 @@ class Deck(ABC):
 class StandardDeck(Deck):
     """Стандартная колода из 52 карт."""
 
+    deck_name = "standart"
+    back_image_path = Path("images/deck_images/standart.png")
+
     def __init__(self) -> None:
         super().__init__()
         self._append_cards(tuple(cards.Suit))
@@ -63,6 +70,9 @@ class StandardDeck(Deck):
 
 class ShortDeck(Deck):
     """Укороченная колода из 36 карт."""
+
+    deck_name = "short"
+    back_image_path = Path("images/deck_images/short.png")
 
     def __init__(self) -> None:
         super().__init__()
@@ -72,15 +82,18 @@ class ShortDeck(Deck):
 class HeartsSpadesDeck(Deck):
     """Колода только из ``♥`` и ``♠``."""
 
+    deck_name = "hearts-spades"
+    back_image_path = Path("images/deck_images/hearts_spades.png")
+
     def __init__(self) -> None:
         super().__init__()
         self._append_cards((cards.Suit.HEARTS, cards.Suit.SPADES), copies=2)
 
 
 DECK_TYPES: dict[str, type[Deck]] = {
-    "Standard Deck": StandardDeck,
-    "Short Deck": ShortDeck,
-    "Hearts & Spades Deck": HeartsSpadesDeck,
+    "standart": StandardDeck,
+    "short": ShortDeck,
+    "hearts-spades": HeartsSpadesDeck,
 }
 
 
@@ -90,3 +103,8 @@ def get_deck_type(deck_name: str) -> type[Deck]:
         return DECK_TYPES[deck_name]
     except KeyError as exc:
         raise KeyError(f"Unknown deck name: {deck_name}") from exc
+
+
+def get_deck_types() -> tuple[type[Deck], ...]:
+    """Возвращает типы колод в порядке отображения."""
+    return tuple(DECK_TYPES[name] for name in ("standart", "short", "hearts-spades"))

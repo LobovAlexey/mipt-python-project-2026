@@ -43,7 +43,8 @@ class AppAssets:
 
     card_images: CardImageRepository
     background: pygame.Surface
-    deck_back_image: pygame.Surface
+    card_size: tuple[int, int]
+    deck_back_cache: dict[str, pygame.Surface] = field(default_factory=dict)
 
     @classmethod
     def load(cls, config: AppConfig) -> "AppAssets":
@@ -56,11 +57,25 @@ class AppAssets:
                 config.paths.background_image,
                 config.window.size,
             ),
-            deck_back_image=cls._load_surface(
-                config.paths.deck_back_image,
-                config.layout.card_size,
-            ),
+            card_size=config.layout.card_size,
         )
+
+    def get_deck_back(self, image_path: Path) -> pygame.Surface:
+        """Возвращает изображение рубашки колоды."""
+        cache_key = image_path.as_posix()
+
+        if not image_path.exists():
+            raise AssetLoadError(f"Missing image: {image_path}")
+
+        if cache_key not in self.deck_back_cache:
+            try:
+                image = pygame.image.load(cache_key).convert_alpha()
+            except pygame.error as exc:
+                raise AssetLoadError(f"Cannot load image: {image_path}") from exc
+
+            self.deck_back_cache[cache_key] = pygame.transform.smoothscale(image, self.card_size)
+
+        return self.deck_back_cache[cache_key]
 
     @staticmethod
     def _load_surface(path: Path, size: tuple[int, int]) -> pygame.Surface:

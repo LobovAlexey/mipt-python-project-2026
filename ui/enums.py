@@ -4,13 +4,16 @@ from enum import StrEnum
 
 
 class AppMode(StrEnum):
-    """Режим приложения"""
+    """Режим приложения."""
+
     MENU = "menu"
+    PROFILE_SETTINGS = "profile_settings"
     GAME = "game"
 
 
 class PopupKind(StrEnum):
     """Тип всплывающего окна."""
+
     NONE = "none"
     WIN = "win"
     LOSS = "loss"
@@ -18,6 +21,7 @@ class PopupKind(StrEnum):
 
 class RoundPhase(StrEnum):
     """Стадия раунда."""
+
     IDLE = "idle"
     MOVING_TO_CENTER = "moving_to_center"
     SCORE_DELAY = "score_delay"
