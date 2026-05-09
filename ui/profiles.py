@@ -151,12 +151,12 @@ class ProfileRepository:
                 writer.writerow(self.CSV_HEADER)
                 for profile in self.profiles[: self.max_profiles]:
                     writer.writerow(
-                        [
+                        (
                             profile.current_rounds,
                             profile.record_rounds,
                             profile.deck_name,
                             *(profile.hand_stats[field_name] for field_name in STAT_FIELDS),
-                        ]
+                        )
                     )
         except OSError as exc:
             raise ProfileStorageError(f"Cannot write profiles file: {self.file_path}") from exc

@@ -34,7 +34,6 @@ class App:
             self.config.paths.profiles_csv,
             self.config.layout.max_profiles,
         )
-
         self.selected_profile_index: int | None = None
 
         self.session = GameSession()
@@ -184,6 +183,10 @@ class App:
             self._start_game_for_selected_profile()
 
     def _handle_game_click(self, mouse_pos: tuple[int, int]) -> None:
+        if self.rects.info_button_rect().collidepoint(mouse_pos):
+            self._back_to_menu()
+            return
+
         if self.rects.play_button_rect().collidepoint(mouse_pos):
             if self.play_button_enabled():
                 self.plays_left -= 1
@@ -292,9 +295,15 @@ class App:
             return
         if self.round_phase != RoundPhase.IDLE:
             return
+
         if self.session.state.total_chips >= self.current_win_score():
             self._finish_win_round()
             return
+
+        if self.session.cards_remaining <= 0 and not self.session.state.hand:
+            self._finish_loss_round()
+            return
+
         if self.plays_left <= 0:
             self._finish_loss_round()
 
@@ -304,7 +313,6 @@ class App:
             selected_indices=self.session.state.selected_indices,
             round_phase=self.round_phase,
         )
-
         selected_indices = sorted(self.session.state.selected_indices)
 
         try:
@@ -312,6 +320,12 @@ class App:
         except InvalidMove:
             self.plays_left += 1
             return
+
+        if self.selected_profile_index is not None and self.profiles.exists(self.selected_profile_index):
+            self.profiles.increment_hand_stat(
+                self.selected_profile_index,
+                self.session.state.played_hand_label,
+            )
 
         self.animated_played_positions = [
             pygame.Vector2(start_rects[index].x, start_rects[index].y)
@@ -332,7 +346,6 @@ class App:
             self.session.state.hand[index]
             for index in selected_indices
         ]
-
         self.animated_discard_positions = [
             pygame.Vector2(
                 self.bottom_card_positions[index].x,
@@ -385,7 +398,6 @@ class App:
                 dt,
                 self.config.animation.played_exit_speed,
             )
-
             if all_reached:
                 self._begin_refill_animation()
 
@@ -402,7 +414,6 @@ class App:
             dt,
             self.config.animation.played_exit_speed,
         )
-
         if all_reached:
             self._begin_discard_refill_animation()
 
@@ -461,7 +472,6 @@ class App:
             for index, position in enumerate(self.bottom_card_positions)
             if index not in selected_indices
         ]
-
         drawn_cards = self.session.finish_played_hand()
         spawn_positions = [
             pygame.Vector2(rect.x, rect.y)
@@ -480,7 +490,6 @@ class App:
             for index, position in enumerate(self.bottom_card_positions)
             if index not in selected_indices
         ]
-
         drawn_cards = self.session.discard_selected()
         spawn_positions = [
             pygame.Vector2(rect.x, rect.y)
@@ -535,7 +544,6 @@ class App:
             selected_indices=self.session.state.selected_indices,
             round_phase=self.round_phase,
         )
-
         self.bottom_card_positions = [
             pygame.Vector2(rect.x, rect.y)
             for rect in target_rects

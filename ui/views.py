@@ -9,6 +9,7 @@ from core.decks import get_deck_type, get_deck_types
 from ui.assets import AppAssets
 from ui.config import AppConfig
 from ui.enums import AppMode, PopupKind, RoundPhase
+from ui.hist import ProfileHistogram
 from ui.layout import RectFactory
 
 
@@ -57,6 +58,7 @@ class GameView:
         self.assets = assets
         self.rects = rects
         self.fonts = FontSet.create()
+        self.profile_histogram = ProfileHistogram()
 
     def render(self, app: "App") -> None:
         """Отрисовывает текущий экран приложения."""
@@ -199,6 +201,28 @@ class GameView:
             colors.play_enabled_text,
         )
 
+        if app.selected_profile_index is None or not app.profiles.exists(app.selected_profile_index):
+            return
+
+        histogram_rect = pygame.Rect(
+            self.config.layout.sidebar_width + 24,
+            24,
+            self.config.window.size[0] - self.config.layout.sidebar_width - 48,
+            self.config.window.size[1] - 48,
+        )
+        self.draw_panel(histogram_rect)
+
+        inner_histogram_rect = histogram_rect.inflate(-20, -20)
+        histogram_surface = self.profile_histogram.render(
+            app.profiles.get(app.selected_profile_index),
+            (inner_histogram_rect.width, inner_histogram_rect.height),
+            background_color=colors.panel_accent,
+            bar_color=colors.play_enabled,
+            text_color=colors.text_main,
+            grid_color=colors.text_muted,
+        )
+        self.screen.blit(histogram_surface, inner_histogram_rect.topleft)
+
     def draw_round_popup(self, app: "App") -> None:
         """Отрисовывает всплывающее окно завершения раунда."""
         colors = self.config.colors
@@ -319,7 +343,7 @@ class GameView:
             mult_rect.y + 42,
         )
 
-        self.draw_button(self.rects.info_button_rect(), "Info", colors.info_button, colors.text_main)
+        self.draw_button(self.rects.info_button_rect(), "Menu", colors.info_button, colors.text_main)
 
         self.draw_action_boxes(app)
         self.draw_sidebar_deck(app)
@@ -334,7 +358,6 @@ class GameView:
             count=app.plays_left,
             enabled=app.play_button_enabled(),
         )
-
         self.draw_action_box(
             panel_rect=self.rects.discard_box_rect(),
             button_rect=self.rects.discard_button_rect(),
@@ -418,6 +441,7 @@ class GameView:
                 self.config.layout.card_size[0],
                 self.config.layout.card_size[1],
             )
+
             self.screen.blit(self.assets.card_images.get(card), draw_rect.topleft)
 
             if app.round_phase == RoundPhase.IDLE and index in app.session.state.selected_indices:
@@ -457,6 +481,7 @@ class GameView:
                 self.config.layout.card_size[0],
                 self.config.layout.card_size[1],
             )
+
             self.screen.blit(self.assets.card_images.get(card), card_rect.topleft)
             self.draw_score_badge_for_card(app, index, card, card_rect)
 
