@@ -4,7 +4,7 @@ import pygame
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
-from ui.profiles import HAND_NAME_TO_STAT_FIELD, ProfileStats
+from profiles.profiles import HAND_NAME_TO_STAT_FIELD, ProfileStats
 
 
 class ProfileHistogram:

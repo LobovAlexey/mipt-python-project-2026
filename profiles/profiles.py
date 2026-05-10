@@ -4,43 +4,18 @@ import csv
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from core.decks import get_deck_types
 from core.errors import ProfileStorageError
+from core.hands import ALL_COMBINATIONS, HAND_NAME_IND
 
-DEFAULT_DECK_NAME = "standart"
-AVAILABLE_DECK_NAMES = ("standart", "short", "hearts-spades")
+AVAILABLE_DECK_NAMES = tuple(deck_type.deck_name for deck_type in get_deck_types())
+DECK_NAME_TO_INDEX = {name: index for index, name in enumerate(AVAILABLE_DECK_NAMES)}
 
-STAT_FIELDS: tuple[str, ...] = (
-    "high_card_cnt",
-    "pair_cnt",
-    "two_pair_cnt",
-    "three_of_a_kind_cnt",
-    "straight_cnt",
-    "flush_cnt",
-    "full_house_cnt",
-    "four_of_a_kind_cnt",
-    "straight_flush_cnt",
-    "five_of_a_kind_cnt",
-    "flush_house_cnt",
-    "flush_five_cnt",
-)
-
-HAND_NAME_TO_STAT_FIELD: dict[str, str] = {
-    "High Card": "high_card_cnt",
-    "Pair": "pair_cnt",
-    "Two Pair": "two_pair_cnt",
-    "Three of a Kind": "three_of_a_kind_cnt",
-    "Straight": "straight_cnt",
-    "Flush": "flush_cnt",
-    "Full House": "full_house_cnt",
-    "Four of a Kind": "four_of_a_kind_cnt",
-    "Straight Flush": "straight_flush_cnt",
-    "Five of a Kind": "five_of_a_kind_cnt",
-    "Flush House": "flush_house_cnt",
-    "Flush Five": "flush_five_cnt",
-}
+STAT_FIELDS = tuple(i.stat_field_name for i in ALL_COMBINATIONS)
+HAND_NAME_TO_STAT_FIELD = {i: ALL_COMBINATIONS[HAND_NAME_IND[i]].stat_field_name for i in HAND_NAME_IND}
 
 
-def default_hand_stats() -> dict[str, int]:
+def _default_hand_stats() -> dict[str, int]:
     """Возвращает словарь со статистикой комбинаций по умолчанию."""
     return {field_name: 0 for field_name in STAT_FIELDS}
 
@@ -51,19 +26,24 @@ class ProfileStats:
 
     current_rounds: int = 0
     record_rounds: int = 0
-    deck_name: str = DEFAULT_DECK_NAME
-    hand_stats: dict[str, int] = field(default_factory=default_hand_stats)
+    deck: int = 0
+    hand_stats: dict[str, int] = field(default_factory=_default_hand_stats)
+
+    @property
+    def deck_name(self) -> str:
+        """Возвращает имя колоды по числовому индексу."""
+        return AVAILABLE_DECK_NAMES[self.deck]
 
     def normalize(self) -> None:
         """Приводит значения статистики к корректному виду."""
-        self.current_rounds = max(0, self.current_rounds)
-        self.record_rounds = max(0, self.record_rounds)
+        self.current_rounds = max(0, int(self.current_rounds))
+        self.record_rounds = max(0, int(self.record_rounds))
         if self.current_rounds > self.record_rounds:
             self.record_rounds = self.current_rounds
-        if self.deck_name not in AVAILABLE_DECK_NAMES:
-            self.deck_name = DEFAULT_DECK_NAME
 
-        normalized_stats = default_hand_stats()
+        self.deck = max(0, min(int(self.deck), len(AVAILABLE_DECK_NAMES) - 1))
+
+        normalized_stats = _default_hand_stats()
         for field_name in STAT_FIELDS:
             normalized_stats[field_name] = max(0, int(self.hand_stats.get(field_name, 0)))
         self.hand_stats = normalized_stats
@@ -125,10 +105,10 @@ class ProfileRepository:
         profile.normalize()
         self.save()
 
-    def set_deck_name(self, index: int, deck_name: str) -> None:
+    def set_deck(self, index: int, deck: int) -> None:
         """Сохраняет выбранную рубашку колоды."""
         profile = self.get(index)
-        profile.deck_name = deck_name
+        profile.deck = deck
         profile.normalize()
         self.save()
 
@@ -143,20 +123,42 @@ class ProfileRepository:
         profile.normalize()
         self.save()
 
+    def replace_profiles(self, profiles: list[ProfileStats]) -> None:
+        """Полностью заменяет содержимое репозитория."""
+        copied_profiles: list[ProfileStats] = []
+        for profile in profiles[: self.max_profiles]:
+            copied_profile = ProfileStats(
+                current_rounds=profile.current_rounds,
+                record_rounds=profile.record_rounds,
+                deck=profile.deck,
+                hand_stats=dict(profile.hand_stats),
+            )
+            copied_profile.normalize()
+            copied_profiles.append(copied_profile)
+
+        self.profiles = copied_profiles
+        self.save()
+
+    def clear(self) -> None:
+        """Очищает репозиторий."""
+        self.profiles = []
+        self.save()
+
     def save(self) -> None:
         """Сохраняет профили в CSV-файл."""
         try:
+            self.file_path.parent.mkdir(parents=True, exist_ok=True)
             with self.file_path.open("w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
                 writer.writerow(self.CSV_HEADER)
                 for profile in self.profiles[: self.max_profiles]:
                     writer.writerow(
-                        (
+                        [
                             profile.current_rounds,
                             profile.record_rounds,
-                            profile.deck_name,
+                            profile.deck,
                             *(profile.hand_stats[field_name] for field_name in STAT_FIELDS),
-                        )
+                        ]
                     )
         except OSError as exc:
             raise ProfileStorageError(f"Cannot write profiles file: {self.file_path}") from exc
@@ -164,6 +166,11 @@ class ProfileRepository:
     def load(self) -> None:
         """Загружает профили из CSV-файла."""
         self.profiles = []
+
+        if not self.file_path.exists():
+            self.save()
+            return
+
         try:
             with self.file_path.open("r", newline="", encoding="utf-8") as file:
                 reader = csv.DictReader(file)
@@ -179,7 +186,7 @@ class ProfileRepository:
                     profile = ProfileStats(
                         current_rounds=self._parse_int(row.get("current")),
                         record_rounds=self._parse_int(row.get("record")),
-                        deck_name=(row.get("deck") or DEFAULT_DECK_NAME).strip() or DEFAULT_DECK_NAME,
+                        deck=self._parse_deck(row.get("deck")),
                         hand_stats={
                             field_name: self._parse_int(row.get(field_name))
                             for field_name in STAT_FIELDS
@@ -197,3 +204,23 @@ class ProfileRepository:
             return max(0, int(value or 0))
         except (TypeError, ValueError):
             return 0
+
+    @staticmethod
+    def _parse_deck(value: str | None) -> int:
+        """Преобразует строку из CSV в индекс колоды."""
+        if value is None:
+            return 0
+
+        stripped = str(value).strip()
+        if not stripped:
+            return 0
+
+        if stripped in DECK_NAME_TO_INDEX:
+            return DECK_NAME_TO_INDEX[stripped]
+
+        try:
+            parsed = int(stripped)
+        except (TypeError, ValueError):
+            return 0
+
+        return max(0, min(parsed, len(AVAILABLE_DECK_NAMES) - 1))

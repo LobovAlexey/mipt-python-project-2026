@@ -124,6 +124,11 @@ class BaseHandCombination(ABC):
         raise NotImplementedError
 
     @property
+    def stat_field_name(self) -> str:
+        """Имя столбца для этой комбинации в таблице статистики"""
+        return '_'.join(self.name.lower().split()) + '_cnt'
+
+    @property
     @abstractmethod
     def base_score(self) -> HandScore:
         """Базовые очки и множитель."""
@@ -321,6 +326,20 @@ ALL_COMBINATIONS: tuple[BaseHandCombination, ...] = (
     HighCard(),
 )
 
+HAND_NAME_IND = {
+    "Flush Five": 0,
+    "Flush House": 1,
+    "Five of a Kind": 2,
+    "Straight Flush": 3,
+    "Four of a Kind": 4,
+    "Full House": 5,
+    "Flush": 6,
+    "Straight": 7,
+    "Three of a Kind": 8,
+    "Two Pair": 9,
+    "Pair": 10,
+    "High Card": 11,
+}
 
 class Hand:
     """Рука игрока с картами и текущим выбором."""

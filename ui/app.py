@@ -6,11 +6,12 @@ from core.cards import Card
 from core.decks import get_deck_type, get_deck_types
 from core.errors import InvalidMove
 from core.game import GameSession
+from profiles.cloud import SupabaseProfileClient
+from profiles.profiles import ProfileRepository
 from ui.assets import AppAssets
 from ui.config import AppConfig
 from ui.enums import AppMode, PopupKind, RoundPhase
 from ui.layout import RectFactory
-from ui.profiles import ProfileRepository
 from ui.views import GameView
 
 
@@ -30,11 +31,19 @@ class App:
         self.assets = AppAssets.load(self.config)
         self.rects = RectFactory(self.config)
         self.view = GameView(self.screen, self.config, self.assets, self.rects)
-        self.profiles = ProfileRepository(
-            self.config.paths.profiles_csv,
-            self.config.layout.max_profiles,
-        )
-        self.selected_profile_index: int | None = None
+
+        self.local_profiles = ProfileRepository(self.config.paths.profiles_csv, 3)
+        self.cloud_profiles = ProfileRepository(self.config.paths.cloud_profiles_csv, 3)
+        self.cloud_client = SupabaseProfileClient(self.config.supabase)
+
+        self.selected_profile_slot: int | None = None
+
+        self.login_popup_open = False
+        self.login_input = ""
+        self.password_input = ""
+        self.active_login_field: str | None = None
+        self.logged_in_login: str | None = None
+        self.login_error_text: str | None = None
 
         self.session = GameSession()
         self.mode = AppMode.MENU
@@ -63,23 +72,86 @@ class App:
             self.view.render(self)
             pygame.display.flip()
 
+        if self.cloud_client.is_logged_in:
+            self._logout_from_cloud(sync_only=True)
+
         pygame.quit()
+
+    def is_cloud_slot(self, slot: int) -> bool:
+        """Проверяет, относится ли слот к cloud-профилям."""
+        return slot >= 3
+
+    def _repo_index_for_slot(self, slot: int) -> int:
+        """Возвращает индекс профиля внутри репозитория."""
+        return slot % 3
+
+    def _profile_repository_for_slot(self, slot: int) -> ProfileRepository | None:
+        """Возвращает репозиторий для слота меню."""
+        if 0 <= slot < 3:
+            return self.local_profiles
+        if 3 <= slot < 6 and self.logged_in_login is not None:
+            return self.cloud_profiles
+        return None
+
+    def profile_slot_display_number(self, slot: int) -> int:
+        """Возвращает номер профиля внутри локальной или cloud-тройки."""
+        return self._repo_index_for_slot(slot) + 1
+
+    def selected_profile_display_number(self) -> int | None:
+        """Возвращает номер выбранного профиля внутри своей тройки."""
+        if self.selected_profile_slot is None:
+            return None
+        return self.profile_slot_display_number(self.selected_profile_slot)
+
+    def is_slot_selected(self, slot: int) -> bool:
+        """Проверяет, выбран ли слот."""
+        return self.selected_profile_slot == slot
 
     def profile_slot_kind(self, index: int) -> str:
         """Возвращает тип слота профиля в меню."""
-        if index < self.profiles.count():
+        repository = self._profile_repository_for_slot(index)
+        if repository is None:
+            return "inactive"
+
+        repo_index = self._repo_index_for_slot(index)
+        if repo_index < repository.count():
             return "created"
-        if index == self.profiles.count() and self.profiles.count() < self.profiles.max_profiles:
+        if repo_index == repository.count() and repository.count() < repository.max_profiles:
             return "plus"
         return "inactive"
 
+    def profile_by_slot(self, slot: int):
+        """Возвращает профиль по номеру слота меню."""
+        repository = self._profile_repository_for_slot(slot)
+        if repository is None:
+            return None
+
+        repo_index = self._repo_index_for_slot(slot)
+        if not repository.exists(repo_index):
+            return None
+        return repository.get(repo_index)
+
+    def current_repository(self) -> ProfileRepository | None:
+        """Возвращает репозиторий выбранного профиля."""
+        if self.selected_profile_slot is None:
+            return None
+        return self._profile_repository_for_slot(self.selected_profile_slot)
+
+    def current_profile_index(self) -> int | None:
+        """Возвращает индекс выбранного профиля внутри репозитория."""
+        if self.selected_profile_slot is None:
+            return None
+        return self._repo_index_for_slot(self.selected_profile_slot)
+
     def current_profile(self):
         """Возвращает текущий выбранный профиль."""
-        if self.selected_profile_index is None:
+        repository = self.current_repository()
+        profile_index = self.current_profile_index()
+        if repository is None or profile_index is None:
             return None
-        if not self.profiles.exists(self.selected_profile_index):
+        if not repository.exists(profile_index):
             return None
-        return self.profiles.get(self.selected_profile_index)
+        return repository.get(profile_index)
 
     def selected_profile_deck_name(self) -> str:
         """Возвращает название выбранной колоды профиля."""
@@ -118,9 +190,18 @@ class App:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                continue
+
+            if event.type == pygame.KEYDOWN and self.login_popup_open:
+                self._handle_login_keydown(event)
+                continue
+
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self.mode == AppMode.MENU:
-                    self._handle_menu_click(event.pos)
+                    if self.login_popup_open:
+                        self._handle_login_popup_click(event.pos)
+                    else:
+                        self._handle_menu_click(event.pos)
                     continue
 
                 if self.mode == AppMode.PROFILE_SETTINGS:
@@ -137,6 +218,15 @@ class App:
                 self._handle_game_click(event.pos)
 
     def _handle_menu_click(self, mouse_pos: tuple[int, int]) -> None:
+        if self.rects.menu_auth_button_rect().collidepoint(mouse_pos):
+            if self.logged_in_login is None:
+                self.login_popup_open = True
+                self.active_login_field = "login"
+                self.login_error_text = None
+            else:
+                self._logout_from_cloud()
+            return
+
         for index, rect in enumerate(self.rects.profile_slot_rects()):
             if not rect.collidepoint(mouse_pos):
                 continue
@@ -148,7 +238,7 @@ class App:
                 return
 
             if kind == "created" and self.rects.profile_settings_rect(rect).collidepoint(mouse_pos):
-                self.selected_profile_index = index
+                self.selected_profile_slot = index
                 self.mode = AppMode.PROFILE_SETTINGS
                 return
 
@@ -156,23 +246,123 @@ class App:
                 return
 
             if kind == "plus":
-                self._create_profile()
+                self._create_profile(index)
                 return
 
-            if self.selected_profile_index == index:
+            if self.selected_profile_slot == index:
                 self._start_game_for_selected_profile()
             else:
-                self.selected_profile_index = index
+                self.selected_profile_slot = index
             return
 
+    def _handle_login_popup_click(self, mouse_pos: tuple[int, int]) -> None:
+        if self.rects.login_input_rect().collidepoint(mouse_pos):
+            self.active_login_field = "login"
+            return
+
+        if self.rects.password_input_rect().collidepoint(mouse_pos):
+            self.active_login_field = "password"
+            return
+
+        if self.rects.login_submit_button_rect().collidepoint(mouse_pos):
+            self._attempt_login()
+            return
+
+        if self.rects.login_cancel_button_rect().collidepoint(mouse_pos):
+            self._close_login_popup()
+
+    def _handle_login_keydown(self, event: pygame.event.Event) -> None:
+        if event.key == pygame.K_ESCAPE:
+            self._close_login_popup()
+            return
+
+        if event.key == pygame.K_TAB:
+            self.active_login_field = "password" if self.active_login_field == "login" else "login"
+            return
+
+        if event.key == pygame.K_RETURN:
+            self._attempt_login()
+            return
+
+        if self.active_login_field not in {"login", "password"}:
+            return
+
+        if event.key == pygame.K_BACKSPACE:
+            if self.active_login_field == "login":
+                self.login_input = self.login_input[:-1]
+            else:
+                self.password_input = self.password_input[:-1]
+            return
+
+        if event.unicode and event.unicode.isprintable():
+            if self.active_login_field == "login":
+                self.login_input += event.unicode
+            else:
+                self.password_input += event.unicode
+
+    def _attempt_login(self) -> None:
+        if not self.login_input or not self.password_input:
+            self.login_error_text = "Fill in all fields"
+            return
+
+        if not self.cloud_client.login(self.login_input, self.password_input):
+            self.login_error_text = "Invalid login data"
+            return
+
+        self.login_error_text = None
+        self.logged_in_login = self.login_input
+        cloud_profiles = self.cloud_client.download_profiles()
+        self.cloud_profiles.replace_profiles(cloud_profiles)
+
+        self.login_popup_open = False
+        self.active_login_field = None
+        self.password_input = ""
+
+    def _close_login_popup(self) -> None:
+        self.login_popup_open = False
+        self.active_login_field = None
+        self.login_error_text = None
+        self.login_input = ""
+        self.password_input = ""
+
+    def _logout_from_cloud(self, *, sync_only: bool = False) -> None:
+        self.cloud_client.upload_profiles(self.cloud_profiles.profiles)
+        self.cloud_profiles.clear()
+        self.cloud_client.logout()
+
+        self.logged_in_login = None
+        self.login_popup_open = False
+        self.active_login_field = None
+        self.login_input = ""
+        self.password_input = ""
+
+        if self.selected_profile_slot is not None and self.is_cloud_slot(self.selected_profile_slot):
+            self.selected_profile_slot = None
+            if not sync_only:
+                self._back_to_menu()
+
+    def profile_slot_label(self, slot: int) -> str:
+        """Возвращает отображаемое имя слота профиля."""
+        kind = "Cloud" if self.is_cloud_slot(slot) else "Local"
+        return f"{kind} {self.profile_slot_display_number(slot)}"
+
+    def selected_profile_label(self) -> str:
+        """Возвращает отображаемое имя выбранного профиля."""
+        if self.selected_profile_slot is None:
+            return "Profile"
+        return self.profile_slot_label(self.selected_profile_slot)
+
     def _handle_profile_settings_click(self, mouse_pos: tuple[int, int]) -> None:
-        if self.selected_profile_index is None or not self.profiles.exists(self.selected_profile_index):
+        repository = self.current_repository()
+        profile_index = self.current_profile_index()
+
+        if repository is None or profile_index is None or not repository.exists(profile_index):
             self._back_to_menu()
             return
 
-        for deck_type, rect in zip(get_deck_types(), self.rects.settings_deck_rects()):
+        for deck_index, rect in enumerate(self.rects.settings_deck_rects()):
             if rect.collidepoint(mouse_pos):
-                self.profiles.set_deck_name(self.selected_profile_index, deck_type.deck_name)
+                repository.set_deck(profile_index, deck_index)
                 return
 
         if self.rects.settings_back_button_rect().collidepoint(mouse_pos):
@@ -211,26 +401,42 @@ class App:
                     pass
                 return
 
-    def _create_profile(self) -> None:
-        new_index = self.profiles.create_profile()
-        if new_index is not None:
-            self.selected_profile_index = new_index
-
-    def _delete_profile(self, index: int) -> None:
-        self.profiles.delete_profile(index)
-
-        if self.selected_profile_index is None:
+    def _create_profile(self, slot: int) -> None:
+        repository = self._profile_repository_for_slot(slot)
+        if repository is None:
             return
-        if self.selected_profile_index == index:
-            self.selected_profile_index = None
-        elif self.selected_profile_index > index:
-            self.selected_profile_index -= 1
+
+        new_index = repository.create_profile()
+        if new_index is not None:
+            self.selected_profile_slot = (3 if self.is_cloud_slot(slot) else 0) + new_index
+
+    def _delete_profile(self, slot: int) -> None:
+        repository = self._profile_repository_for_slot(slot)
+        if repository is None:
+            return
+
+        repo_index = self._repo_index_for_slot(slot)
+        repository.delete_profile(repo_index)
+
+        if self.selected_profile_slot is None:
+            return
+        if self.selected_profile_slot == slot:
+            self.selected_profile_slot = None
+            return
+
+        if self.is_cloud_slot(self.selected_profile_slot) != self.is_cloud_slot(slot):
+            return
+
+        selected_repo_index = self._repo_index_for_slot(self.selected_profile_slot)
+        if selected_repo_index > repo_index:
+            offset = 3 if self.is_cloud_slot(slot) else 0
+            self.selected_profile_slot = offset + selected_repo_index - 1
 
     def _start_game_for_selected_profile(self) -> None:
-        if self.selected_profile_index is None or not self.profiles.exists(self.selected_profile_index):
+        profile = self.current_profile()
+        if profile is None:
             return
 
-        profile = self.profiles.get(self.selected_profile_index)
         deck_cls = get_deck_type(profile.deck_name)
 
         self.session = GameSession()
@@ -265,15 +471,20 @@ class App:
         self.round_phase = RoundPhase.IDLE
 
     def _finish_win_round(self) -> None:
-        if self.selected_profile_index is None or not self.profiles.exists(self.selected_profile_index):
+        repository = self.current_repository()
+        profile_index = self.current_profile_index()
+        if repository is None or profile_index is None or not repository.exists(profile_index):
             return
 
-        self.profiles.increment_current_round(self.selected_profile_index)
+        repository.increment_current_round(profile_index)
         self.popup_kind = PopupKind.WIN
 
     def _finish_loss_round(self) -> None:
-        if self.selected_profile_index is not None and self.profiles.exists(self.selected_profile_index):
-            self.profiles.reset_current_round(self.selected_profile_index)
+        repository = self.current_repository()
+        profile_index = self.current_profile_index()
+
+        if repository is not None and profile_index is not None and repository.exists(profile_index):
+            repository.reset_current_round(profile_index)
 
         self.popup_kind = PopupKind.LOSS
 
@@ -321,9 +532,11 @@ class App:
             self.plays_left += 1
             return
 
-        if self.selected_profile_index is not None and self.profiles.exists(self.selected_profile_index):
-            self.profiles.increment_hand_stat(
-                self.selected_profile_index,
+        repository = self.current_repository()
+        profile_index = self.current_profile_index()
+        if repository is not None and profile_index is not None and repository.exists(profile_index):
+            repository.increment_hand_stat(
+                profile_index,
                 self.session.state.played_hand_label,
             )
 

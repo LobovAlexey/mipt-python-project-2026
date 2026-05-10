@@ -11,8 +11,8 @@ from core.errors import NoCardsLeft
 class Deck(ABC):
     """Абстрактный класс для колод."""
 
-    deck_name = "standart"
-    back_image_path = Path("images/deck_images/standart.png")
+    deck_name = "standard"
+    back_image_path = Path("images/deck_images/standard.png")
 
     def __init__(self) -> None:
         self.index = 0
@@ -60,8 +60,8 @@ class Deck(ABC):
 class StandardDeck(Deck):
     """Стандартная колода из 52 карт."""
 
-    deck_name = "standart"
-    back_image_path = Path("images/deck_images/standart.png")
+    deck_name = "standard"
+    back_image_path = Path("images/deck_images/standard.png")
 
     def __init__(self) -> None:
         super().__init__()
@@ -91,7 +91,7 @@ class HeartsSpadesDeck(Deck):
 
 
 DECK_TYPES: dict[str, type[Deck]] = {
-    "standart": StandardDeck,
+    "standard": StandardDeck,
     "short": ShortDeck,
     "hearts-spades": HeartsSpadesDeck,
 }
@@ -107,4 +107,4 @@ def get_deck_type(deck_name: str) -> type[Deck]:
 
 def get_deck_types() -> tuple[type[Deck], ...]:
     """Возвращает типы колод в порядке отображения."""
-    return tuple(DECK_TYPES[name] for name in ("standart", "short", "hearts-spades"))
+    return tuple(DECK_TYPES[name] for name in ("standard", "short", "hearts-spades"))

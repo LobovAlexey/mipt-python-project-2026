@@ -151,7 +151,6 @@ class RectFactory:
                         height,
                     )
                 )
-
         return rects
 
     def profile_delete_rect(self, profile_rect: pygame.Rect) -> pygame.Rect:
@@ -164,18 +163,75 @@ class RectFactory:
         size = self.config.layout.profile_delete_size
         return pygame.Rect(profile_rect.right - size - 10, profile_rect.bottom - size - 10, size, size)
 
+    def menu_auth_button_rect(self) -> pygame.Rect:
+        """Возвращает область кнопки входа или выхода в меню."""
+        width, height = self.config.layout.menu_auth_button_size
+        x = self.window_size[0] - width - self.config.layout.menu_side_margin
+        y = self.window_size[1] - height - self.config.layout.menu_bottom_margin
+        return pygame.Rect(x, y, width, height)
+
+    def menu_login_text_rect(self) -> pygame.Rect:
+        """Возвращает область текста логина в меню."""
+        button_rect = self.menu_auth_button_rect()
+        x = self.config.layout.menu_side_margin
+        width = max(200, button_rect.x - 2 * self.config.layout.menu_side_margin)
+        return pygame.Rect(x, button_rect.y, width, button_rect.height)
+
+    def login_popup_rect(self) -> pygame.Rect:
+        """Возвращает область окна логина."""
+        rect = pygame.Rect(0, 0, *self.config.layout.login_popup_size)
+        rect.center = (self.window_size[0] // 2, self.window_size[1] // 2)
+        return rect
+
+    def login_input_rect(self) -> pygame.Rect:
+        """Возвращает область поля login."""
+        popup = self.login_popup_rect()
+        margin = 36
+        y = popup.y + 88
+        return pygame.Rect(popup.x + margin, y, popup.width - 2 * margin, self.config.layout.login_popup_input_height)
+
+    def password_input_rect(self) -> pygame.Rect:
+        """Возвращает область поля password."""
+        login_rect = self.login_input_rect()
+        return pygame.Rect(
+            login_rect.x,
+            login_rect.bottom + 42,
+            login_rect.width,
+            login_rect.height,
+        )
+
+    def login_submit_button_rect(self) -> pygame.Rect:
+        """Возвращает область кнопки входа в popup."""
+        popup = self.login_popup_rect()
+        width, height = self.config.layout.login_popup_button_size
+        return pygame.Rect(popup.x + 36, popup.bottom - 72, width, height)
+
+    def login_cancel_button_rect(self) -> pygame.Rect:
+        """Возвращает область кнопки отмены в popup."""
+        popup = self.login_popup_rect()
+        width, height = self.config.layout.login_popup_button_size
+        return pygame.Rect(popup.right - 36 - width, popup.bottom - 72, width, height)
+
     def settings_deck_rects(self) -> list[pygame.Rect]:
         """Возвращает области трех рубашек колоды в настройках."""
         inner = self.sidebar_inner_rect()
         title = self.title_rect()
         width, height = self.config.layout.card_size
 
-        start_x = inner.centerx - width // 2
+        rotated_width = height
+        rotated_height = width
+
+        start_x = inner.centerx - rotated_width // 2
         start_y = title.bottom + 18
-        gap = 18
+        gap = 36
 
         return [
-            pygame.Rect(start_x, start_y + index * (height + gap), width, height)
+            pygame.Rect(
+                start_x,
+                start_y + index * (rotated_height + gap),
+                rotated_width,
+                rotated_height,
+            )
             for index in range(3)
         ]
 
@@ -223,7 +279,6 @@ class RectFactory:
                     layout.card_size[1],
                 )
             )
-
         return rects
 
     def bottom_hitbox_rects(self, positions: list[pygame.Vector2]) -> list[pygame.Rect]:

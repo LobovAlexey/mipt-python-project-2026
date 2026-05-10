@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pygame
 
 from core.cards import Card
-from core.decks import get_deck_type, get_deck_types
+from core.decks import get_deck_types
 from ui.assets import AppAssets
 from ui.config import AppConfig
 from ui.enums import AppMode, PopupKind, RoundPhase
@@ -66,6 +66,8 @@ class GameView:
 
         if app.mode == AppMode.MENU:
             self.draw_profile_menu(app)
+            if app.login_popup_open:
+                self.draw_login_popup(app)
             return
 
         if app.mode == AppMode.PROFILE_SETTINGS:
@@ -97,7 +99,6 @@ class GameView:
             subtitle_rect,
         )
 
-        profiles = app.profiles.profiles
         for index, rect in enumerate(self.rects.profile_slot_rects()):
             kind = app.profile_slot_kind(index)
 
@@ -105,7 +106,7 @@ class GameView:
                 fill = colors.profile_inactive
             elif kind == "plus":
                 fill = colors.profile_available
-            elif app.selected_profile_index == index:
+            elif app.is_slot_selected(index):
                 fill = colors.profile_selected
             else:
                 fill = colors.profile_created
@@ -120,6 +121,10 @@ class GameView:
                 plus_surface = self.fonts.value.render("+", True, colors.text_main)
                 plus_rect = plus_surface.get_rect(center=rect.center)
                 self.screen.blit(plus_surface, plus_rect)
+                continue
+
+            profile = app.profile_by_slot(index)
+            if profile is None:
                 continue
 
             delete_rect = self.rects.profile_delete_rect(rect)
@@ -137,9 +142,14 @@ class GameView:
             settings_text_rect = settings_surface.get_rect(center=settings_rect.center)
             self.screen.blit(settings_surface, settings_text_rect)
 
-            profile = profiles[index]
             text_x = rect.x + 20
-            self.draw_text(f"Profile {index + 1}", self.fonts.label, colors.text_main, text_x, rect.y + 24)
+            self.draw_text(
+                app.profile_slot_label(index),
+                self.fonts.label,
+                colors.text_main,
+                text_x,
+                rect.y + 24,
+            )
             self.draw_text(
                 f"Record: {profile.record_rounds} rounds",
                 self.fonts.small,
@@ -155,9 +165,74 @@ class GameView:
                 rect.y + 108,
             )
 
+        auth_label = "Log out" if app.logged_in_login is not None else "Log in"
+        self.draw_button(
+            self.rects.menu_auth_button_rect(),
+            auth_label,
+            colors.play_enabled if app.logged_in_login is None else colors.profile_created,
+            colors.text_main,
+        )
+
+        if app.logged_in_login is not None:
+            self.draw_text(
+                f"Login: {app.logged_in_login}",
+                self.fonts.small,
+                colors.text_main,
+                self.rects.menu_login_text_rect().x,
+                self.rects.menu_login_text_rect().y + 14,
+            )
+
+    def draw_login_popup(self, app: "App") -> None:
+        """Отрисовывает popup логина."""
+        colors = self.config.colors
+
+        overlay = pygame.Surface(self.config.window.size, pygame.SRCALPHA)
+        overlay.fill(colors.overlay_fill)
+        self.screen.blit(overlay, (0, 0))
+
+        popup = self.rects.login_popup_rect()
+        self.draw_panel(popup, fill=colors.popup_fill)
+
+        title_text = app.login_error_text or "Log in"
+        title_color = colors.text_red if app.login_error_text else colors.text_main
+
+        title_rect = pygame.Rect(popup.x, popup.y + 20, popup.width, 38)
+        self.draw_centered_text(title_text, self.fonts.title, title_color, title_rect)
+
+        self.draw_input_box(
+            self.rects.login_input_rect(),
+            "Login",
+            app.login_input,
+            active=app.active_login_field == "login",
+            password=False,
+        )
+        self.draw_input_box(
+            self.rects.password_input_rect(),
+            "Password (at least 6 chars)",
+            app.password_input,
+            active=app.active_login_field == "password",
+            password=True,
+        )
+
+        self.draw_button(
+            self.rects.login_submit_button_rect(),
+            "Log in",
+            colors.play_enabled,
+            colors.text_main,
+        )
+        self.draw_button(
+            self.rects.login_cancel_button_rect(),
+            "Cancel",
+            colors.profile_created,
+            colors.text_main,
+        )
+
     def draw_profile_settings(self, app: "App") -> None:
         """Отрисовывает экран настроек профиля."""
         colors = self.config.colors
+        profile = app.current_profile()
+        if profile is None:
+            return
 
         sidebar_rect = pygame.Rect(0, 0, self.config.layout.sidebar_width, self.config.window.size[1])
         pygame.draw.rect(self.screen, colors.panel_bg, sidebar_rect)
@@ -165,16 +240,17 @@ class GameView:
         title_rect = self.rects.title_rect()
         self.draw_panel(title_rect, fill=colors.info_button)
 
-        profile_label = "Profile"
-        if app.selected_profile_index is not None:
-            profile_label = f"Profile {app.selected_profile_index + 1}"
+        profile_label = app.selected_profile_label()
         self.draw_centered_text(profile_label, self.fonts.title, colors.text_main, title_rect)
 
         selected_deck_name = app.selected_profile_deck_name()
 
         for deck_type, deck_rect in zip(get_deck_types(), self.rects.settings_deck_rects()):
             deck_image = self.assets.get_deck_back(deck_type.back_image_path)
-            self.screen.blit(deck_image, deck_rect.topleft)
+            rotated_image = pygame.transform.rotate(deck_image, 90)
+            rotated_rect = rotated_image.get_rect(center=deck_rect.center)
+
+            self.screen.blit(rotated_image, rotated_rect.topleft)
             pygame.draw.rect(self.screen, colors.panel_border, deck_rect, width=3, border_radius=12)
 
             if deck_type.deck_name == selected_deck_name:
@@ -187,6 +263,16 @@ class GameView:
                 badge_text = self.fonts.deck_badge.render("V", True, colors.text_main)
                 badge_text_rect = badge_text.get_rect(center=badge_rect.center)
                 self.screen.blit(badge_text, badge_text_rect)
+
+            label_map = {
+                "standard": "Standard",
+                "short": "Short",
+                "hearts-spades": "Hearts & Spades",
+            }
+
+            label_text = label_map.get(deck_type.deck_name, deck_type.deck_name)
+            label_rect = pygame.Rect(deck_rect.x, deck_rect.bottom + 4, deck_rect.width, 22)
+            self.draw_centered_text(label_text, self.fonts.tiny, colors.text_main, label_rect)
 
         self.draw_button(
             self.rects.settings_back_button_rect(),
@@ -201,9 +287,6 @@ class GameView:
             colors.play_enabled_text,
         )
 
-        if app.selected_profile_index is None or not app.profiles.exists(app.selected_profile_index):
-            return
-
         histogram_rect = pygame.Rect(
             self.config.layout.sidebar_width + 24,
             24,
@@ -214,7 +297,7 @@ class GameView:
 
         inner_histogram_rect = histogram_rect.inflate(-20, -20)
         histogram_surface = self.profile_histogram.render(
-            app.profiles.get(app.selected_profile_index),
+            profile,
             (inner_histogram_rect.width, inner_histogram_rect.height),
             background_color=colors.panel_accent,
             bar_color=colors.play_enabled,
@@ -248,10 +331,10 @@ class GameView:
 
         self.draw_centered_text(title, self.fonts.title, colors.text_main, title_rect)
 
-        if app.selected_profile_index is not None and app.profiles.exists(app.selected_profile_index):
-            profile = app.profiles.get(app.selected_profile_index)
+        profile = app.current_profile()
+        if profile is not None:
             self.draw_centered_text(
-                f"Profile {app.selected_profile_index + 1}",
+                app.selected_profile_label(),
                 self.fonts.label,
                 colors.text_main,
                 line1,
@@ -300,8 +383,8 @@ class GameView:
         self.draw_panel(title_rect, fill=colors.info_button)
 
         profile_label = "Profile"
-        if app.selected_profile_index is not None:
-            profile_label = f"Profile {app.selected_profile_index + 1}"
+        if app.selected_profile_display_number() is not None:
+            profile_label = app.selected_profile_label()
         self.draw_centered_text(profile_label, self.fonts.title, colors.text_main, title_rect)
 
         total_chips_rect = self.rects.total_chips_rect()
@@ -441,7 +524,6 @@ class GameView:
                 self.config.layout.card_size[0],
                 self.config.layout.card_size[1],
             )
-
             self.screen.blit(self.assets.card_images.get(card), draw_rect.topleft)
 
             if app.round_phase == RoundPhase.IDLE and index in app.session.state.selected_indices:
@@ -481,7 +563,6 @@ class GameView:
                 self.config.layout.card_size[0],
                 self.config.layout.card_size[1],
             )
-
             self.screen.blit(self.assets.card_images.get(card), card_rect.topleft)
             self.draw_score_badge_for_card(app, index, card, card_rect)
 
@@ -535,58 +616,63 @@ class GameView:
             return 0
 
         if app.round_phase == RoundPhase.SCORE_FINAL_FADE:
-            if ordered_index != len(scoring_indices) - 1:
-                return 0
             progress = min(1.0, app.score_final_fade_timer / self.config.animation.score_final_fade_duration)
             return round(255 * (1.0 - progress))
 
         return 0
 
     def draw_discard_exiting_cards(self, app: "App") -> None:
-        """Отрисовывает карты во время анимации сброса."""
+        """Отрисовывает сбрасываемые карты во время анимации выхода."""
         for card, position in zip(app.animated_discard_cards, app.animated_discard_positions):
-            rect = pygame.Rect(
+            card_rect = pygame.Rect(
                 round(position.x),
                 round(position.y),
                 self.config.layout.card_size[0],
                 self.config.layout.card_size[1],
             )
-            self.screen.blit(self.assets.card_images.get(card), rect.topleft)
+            self.screen.blit(self.assets.card_images.get(card), card_rect.topleft)
+
+    def draw_text(
+        self,
+        text: str,
+        font: pygame.font.Font,
+        color: tuple[int, int, int],
+        x: int,
+        y: int,
+    ) -> None:
+        """Отрисовывает текст в заданной позиции."""
+        surface = font.render(text, True, color)
+        self.screen.blit(surface, (x, y))
+
+    def draw_centered_text(
+        self,
+        text: str,
+        font: pygame.font.Font,
+        color: tuple[int, int, int],
+        rect: pygame.Rect,
+    ) -> None:
+        """Отрисовывает текст по центру прямоугольника."""
+        surface = font.render(text, True, color)
+        surface_rect = surface.get_rect(center=rect.center)
+        self.screen.blit(surface, surface_rect)
 
     def draw_button(
         self,
         rect: pygame.Rect,
-        text: str,
-        fill_color: tuple[int, int, int],
+        label: str,
+        fill: tuple[int, int, int],
         text_color: tuple[int, int, int],
     ) -> None:
-        """Отрисовывает кнопку с текстом."""
-        pygame.draw.rect(self.screen, fill_color, rect, border_radius=14)
+        """Отрисовывает кнопку."""
+        pygame.draw.rect(self.screen, fill, rect, border_radius=14)
         pygame.draw.rect(self.screen, self.config.colors.panel_border, rect, width=3, border_radius=14)
-        label = self.fonts.button.render(text, True, text_color)
-        label_rect = label.get_rect(center=rect.center)
-        self.screen.blit(label, label_rect)
+        self.draw_centered_text(label, self.fonts.button, text_color, rect)
 
-    def draw_panel(
-        self,
-        rect: pygame.Rect,
-        *,
-        fill: tuple[int, int, int] | None = None,
-    ) -> None:
-        """Отрисовывает стандартную панель интерфейса."""
-        pygame.draw.rect(
-            self.screen,
-            fill or self.config.colors.panel_accent,
-            rect,
-            border_radius=18,
-        )
-        pygame.draw.rect(
-            self.screen,
-            self.config.colors.panel_border,
-            rect,
-            width=4,
-            border_radius=18,
-        )
+    def draw_panel(self, rect: pygame.Rect, fill: tuple[int, int, int] | None = None) -> None:
+        """Отрисовывает стандартную панель."""
+        panel_fill = self.config.colors.panel_accent if fill is None else fill
+        pygame.draw.rect(self.screen, panel_fill, rect, border_radius=18)
+        pygame.draw.rect(self.screen, self.config.colors.panel_border, rect, width=4, border_radius=18)
 
     def draw_rounded_overlay(
         self,
@@ -597,11 +683,10 @@ class GameView:
         border_width: int,
         radius: int,
     ) -> None:
-        """Отрисовывает полупрозрачную скругленную подложку."""
-        surface = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-        local_rect = surface.get_rect()
-        pygame.draw.rect(surface, fill_rgba, local_rect, border_radius=radius)
-        pygame.draw.rect(surface, border_rgba, local_rect, width=border_width, border_radius=radius)
+        """Отрисовывает полупрозрачную прямоугольную область."""
+        surface = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(surface, fill_rgba, surface.get_rect(), border_radius=radius)
+        pygame.draw.rect(surface, border_rgba, surface.get_rect(), width=border_width, border_radius=radius)
         self.screen.blit(surface, rect.topleft)
 
     def draw_alpha_badge(
@@ -614,40 +699,41 @@ class GameView:
         border_color: tuple[int, int, int],
         text_color: tuple[int, int, int],
     ) -> None:
-        """Отрисовывает бейдж с настраиваемой прозрачностью."""
-        badge_surface = pygame.Surface((badge_rect.width, badge_rect.height), pygame.SRCALPHA)
-        local_rect = badge_surface.get_rect()
-
-        pygame.draw.rect(badge_surface, (*fill_color, alpha), local_rect, border_radius=10)
-        pygame.draw.rect(badge_surface, (*border_color, alpha), local_rect, width=2, border_radius=10)
+        """Отрисовывает полупрозрачный бейдж."""
+        surface = pygame.Surface(badge_rect.size, pygame.SRCALPHA)
+        local_rect = surface.get_rect()
+        pygame.draw.rect(surface, (*fill_color, alpha), local_rect, border_radius=10)
+        pygame.draw.rect(surface, (*border_color, alpha), local_rect, width=2, border_radius=10)
 
         text_surface = self.fonts.score_badge.render(text, True, text_color)
         text_surface.set_alpha(alpha)
         text_rect = text_surface.get_rect(center=local_rect.center)
-        badge_surface.blit(text_surface, text_rect)
+        surface.blit(text_surface, text_rect)
 
-        self.screen.blit(badge_surface, badge_rect.topleft)
+        self.screen.blit(surface, badge_rect.topleft)
 
-    def draw_text(
+    def draw_input_box(
         self,
-        text: str,
-        font: pygame.font.Font,
-        color: tuple[int, int, int],
-        x: int,
-        y: int,
-    ) -> None:
-        """Отрисовывает текст по заданным координатам."""
-        surface = font.render(text, True, color)
-        self.screen.blit(surface, (x, y))
-
-    def draw_centered_text(
-        self,
-        text: str,
-        font: pygame.font.Font,
-        color: tuple[int, int, int],
         rect: pygame.Rect,
+        label: str,
+        value: str,
+        *,
+        active: bool,
+        password: bool,
     ) -> None:
-        """Отрисовывает текст по центру прямоугольной области."""
-        surface = font.render(text, True, color)
-        surface_rect = surface.get_rect(center=rect.center)
-        self.screen.blit(surface, surface_rect)
+        """Отрисовывает поле ввода."""
+        colors = self.config.colors
+
+        label_surface = self.fonts.tiny.render(label, True, colors.text_muted)
+        self.screen.blit(label_surface, (rect.x, rect.y - 24))
+
+        fill = colors.input_fill
+        border = colors.input_active_border if active else colors.input_border
+
+        pygame.draw.rect(self.screen, fill, rect, border_radius=12)
+        pygame.draw.rect(self.screen, border, rect, width=3, border_radius=12)
+
+        shown_value = "*" * len(value) if password else value
+        value_surface = self.fonts.small.render(shown_value, True, colors.text_main)
+        value_rect = value_surface.get_rect(midleft=(rect.x + 14, rect.centery))
+        self.screen.blit(value_surface, value_rect)

@@ -11,7 +11,7 @@ ColorA = tuple[int, int, int, int]
 class WindowConfig:
     size: tuple[int, int] = (1365, 768)
     fps: int = 60
-    caption: str = "Card Game (Beta)"
+    caption: str = "Card Game (Alpha)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +47,14 @@ class LayoutConfig:
     profile_gap_y: int = 26
     profile_delete_size: int = 34
 
+    menu_auth_button_size: tuple[int, int] = (160, 56)
+    menu_bottom_margin: int = 24
+    menu_side_margin: int = 28
+
+    login_popup_size: tuple[int, int] = (460, 300)
+    login_popup_input_height: int = 48
+    login_popup_button_size: tuple[int, int] = (160, 52)
+
     @property
     def max_profiles(self) -> int:
         return self.profile_cols * self.profile_rows
@@ -64,8 +72,16 @@ class AnimationConfig:
 @dataclass(frozen=True, slots=True)
 class PathsConfig:
     profiles_csv: Path = Path("data/profiles.csv")
+    cloud_profiles_csv: Path = Path("data/cloud.csv")
     card_images_dir: Path = Path("images/card_images")
     background_image: Path = Path("images/background.png")
+
+
+@dataclass(frozen=True, slots=True)
+class SupabaseConfig:
+    url: str = "https://jolxhfvakkqhokpjgkvx.supabase.co"
+    table_name: str = "ProfileTable"
+    anon_key: str = "sb_publishable_ZEA4AWddsLkm-6KuWwmvxg_-Sp1oMjK"
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +129,10 @@ class ColorTheme:
     popup_fill: Color = (40, 50, 58)
     overlay_fill: ColorA = (0, 0, 0, 150)
 
+    input_fill: Color = (58, 70, 80)
+    input_border: Color = (96, 110, 122)
+    input_active_border: Color = (54, 144, 255)
+
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
@@ -121,4 +141,5 @@ class AppConfig:
     layout: LayoutConfig = field(default_factory=LayoutConfig)
     animation: AnimationConfig = field(default_factory=AnimationConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
+    supabase: SupabaseConfig = field(default_factory=SupabaseConfig)
     colors: ColorTheme = field(default_factory=ColorTheme)
